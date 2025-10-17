@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>人脸登录 Demo 前端</title>
+  <style>
+    body{font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; padding:20px; background:#f7fafc}
+    .card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(20,20,40,0.06);max-width:820px;margin:0 auto}
+    header{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+    video{width:320px;height:240px;border-radius:8px;background:#000;object-fit:cover}
+    canvas{display:none}
+    .controls{display:flex;flex-direction:column;gap:8px;margin-left:16px}
+    .row{display:flex;gap:12px}
+    input,button,select{padding:8px;border-radius:8px;border:1px solid #e6e6e9}
+    .btn{cursor:pointer}
+    .btn-primary{background:#2563eb;color:#fff;border:none}
+    .btn-ghost{background:#fff}
+    .resp{margin-top:12px;padding:10px;border-radius:8px;background:#f1f5f9}
+    label{font-size:14px}
+    .small{font-size:13px;color:#6b7280}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div>
+        <h2 style="margin:0">人脸识别登录（前端 Demo）</h2>
+        <div class="small">使用摄像头拍照或上传图片，调用后端 /register 与 /login 接口</div>
+      </div>
+    </header>
+
+    <div class="row">
+      <div>
+        <video id="video" autoplay playsinline></video>
+        <canvas id="capture" width="640" height="480"></canvas>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button id="startBtn" class="btn btn-ghost">打开摄像头</button>
+          <button id="snapBtn" class="btn btn-primary">拍照</button>
+          <button id="stopBtn" class="btn">关闭摄像头</button>
+        </div>
+      </div>
+
+      <div class="controls">
+        <label>用户名</label>
+        <input id="username" placeholder="例如: alice" />
+
+        <label>或上传图片</label>
+        <input id="fileInput" type="file" accept="image/*" />
+
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="registerBtn" class="btn btn-primary">Register</button>
+          <button id="loginBtn" class="btn">Login</button>
+        </div>
+
+        <div class="small">后端地址请确保指向你的 API（默认 http://localhost:8000）</div>
+      </div>
+    </div>
+
+    <div id="previewBox" style="margin-top:12px">
+      <label>预览：</label>
+      <div style="margin-top:8px"><img id="previewImg" style="max-width:320px;border-radius:8px" /></div>
+    </div>
+
+    <div id="resp" class="resp">操作结果会显示在这里</div>
+  </div>
+
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('capture');
+  const ctx = canvas.getContext('2d');
+  const previewImg = document.getElementById('previewImg');
+  const fileInput = document.getElementById('fileInput');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const snapBtn = document.getElementById('snapBtn');
+  const registerBtn = document.getElementById('registerBtn');
+  const loginBtn = document.getElementById('loginBtn');
+  const usernameInput = document.getElementById('username');
+  const resp = document.getElementById('resp');
+
+  let stream = null;
+  let lastBlob = null; // 存储最后一张拍的图片或上传的图片
+  const BACKEND = '' || 'http://localhost:8000'; // 如果你的后端地址不同，在这里修改
+
+  async function startCamera(){
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}, audio:false});
+      video.srcObject = stream;
+      resp.innerText = '摄像头已打开';
+    }catch(e){
+      resp.innerText = '无法打开摄像头: ' + e.message;
+    }
+  }
+
+  function stopCamera(){
+    if(stream){
+      stream.getTracks().forEach(t=>t.stop());
+      video.srcObject = null;
+      stream = null;
+      resp.innerText = '摄像头已关闭';
+    }
+  }
+
+  function snap(){
+    if(!video.srcObject) { resp.innerText = '摄像头未打开'; return }
+    // 按比例绘制到 canvas
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((b)=>{
+      lastBlob = b;
+      const url = URL.createObjectURL(b);
+      previewImg.src = url;
+      resp.innerText = '已拍照，准备上传';
+    }, 'image/jpeg', 0.9);
+  }
+
+  fileInput.addEventListener('change', (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    lastBlob = f;
+    previewImg.src = URL.createObjectURL(f);
+    resp.innerText = '已选择上传图片';
+  });
+
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  snapBtn.addEventListener('click', snap);
+
+  async function sendForm(path){
+    const username = usernameInput.value.trim();
+    if(!username){ resp.innerText = '请填写用户名'; return }
+    if(!lastBlob){ resp.innerText = '请先拍照或上传图片'; return }
+
+    const fd = new FormData();
+    fd.append('username', username);
+    fd.append('file', lastBlob, 'capture.jpg');
+
+    resp.innerText = '正在请求...';
+    try{
+      const r = await fetch(BACKEND + path, {method:'POST', body: fd});
+      const j = await r.json();
+      resp.innerText = JSON.stringify(j, null, 2);
+    }catch(e){
+      resp.innerText = '请求失败: ' + e.message;
+    }
+  }
+
+  registerBtn.addEventListener('click', ()=> sendForm('/register'));
+  loginBtn.addEventListener('click', ()=> sendForm('/login'));
+
+  // 自动尝试打开摄像头（可选）
+  // startCamera();
+</script>
+</body>
+</html>
